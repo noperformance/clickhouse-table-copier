@@ -1,0 +1,27 @@
+source:
+  user: "default"
+  password: ""
+  host: "10.0.0.1"
+  port: 9000
+  database: "billing"
+  table: "time"
+  skip_verify: true
+  secure: false
+  key_filename: ""
+destination:
+  user: "default"
+  password: ""
+  host: "10.0.0.2"
+  port: 9000
+  database: "billing"
+  table: "time"
+  skip_verify: true
+  secure: false
+  key_filename: ""
+
+worker_pool:
+  num_workers: 10
+  num_retry: 50
+  chan_len: 100
+
+debug: false
