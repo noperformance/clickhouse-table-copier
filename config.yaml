@@ -1,7 +1,7 @@
 source:
   user: "default"
   password: ""
-  host: "10.0.0.1"
+  host: "192.168.110.90"
   port: 9000
   database: "billing"
   table: "time"
@@ -11,7 +11,7 @@ source:
 destination:
   user: "default"
   password: ""
-  host: "10.0.0.2"
+  host: "192.168.110.90"
   port: 9000
   database: "billing"
   table: "time"

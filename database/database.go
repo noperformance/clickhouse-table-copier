@@ -2,13 +2,12 @@ package database
 
 import (
 	"clickhouse-table-copier/config"
+	"context"
 	"database/sql"
 	"fmt"
 	"github.com/ClickHouse/clickhouse-go/v2"
 	log "github.com/sirupsen/logrus"
-	"regexp"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 )
@@ -81,30 +80,64 @@ func (d dsnString) Add(argName string, argValue interface{}) {
 }
 
 func (d dsnString) GetDSN() string {
-	result := fmt.Sprintf("tcp://%s:%s", d.Host, d.Port)
+
+	var result string
+
+	if d.args["username"] != "" && d.args["password"] != "" {
+		result = fmt.Sprintf("clickhouse://%s:%s@%s:%s", d.args["username"], d.args["password"], d.Host, d.Port)
+
+		delim := "?"
+		for k, v := range d.args {
+			if k == "username" || k == "password" {
+				continue
+			}
+			switch v.(type) {
+			case string:
+				if len(v.(string)) > 0 {
+					result += fmt.Sprintf("%s%s=%v", delim, k, v)
+				} else {
+					continue
+				}
+			case bool:
+				if v.(bool) {
+					result += fmt.Sprintf("%s%s=%v", delim, k, v)
+				} else {
+					continue
+				}
+			default:
+				result += fmt.Sprintf("%s%s=%v", delim, k, v)
+			}
+			delim = "&"
+		}
+	} else {
+		result = fmt.Sprintf("tcp://%s:%s", d.Host, d.Port)
+
+		delim := "?"
+		for k, v := range d.args {
+			switch v.(type) {
+			case string:
+				if len(v.(string)) > 0 {
+					result += fmt.Sprintf("%s%s=%v", delim, k, v)
+				} else {
+					continue
+				}
+			case bool:
+				if v.(bool) {
+					result += fmt.Sprintf("%s%s=%v", delim, k, v)
+				} else {
+					continue
+				}
+			default:
+				result += fmt.Sprintf("%s%s=%v", delim, k, v)
+			}
+			delim = "&"
+		}
+	}
+
 	if len(d.args) < 1 {
 		return result
 	}
-	delim := "?"
-	for k, v := range d.args {
-		switch v.(type) {
-		case string:
-			if len(v.(string)) > 0 {
-				result += fmt.Sprintf("%s%s=%v", delim, k, v)
-			} else {
-				continue
-			}
-		case bool:
-			if v.(bool) {
-				result += fmt.Sprintf("%s%s=%v", delim, k, v)
-			} else {
-				continue
-			}
-		default:
-			result += fmt.Sprintf("%s%s=%v", delim, k, v)
-		}
-		delim = "&"
-	}
+
 	return result
 }
 
@@ -194,6 +227,7 @@ func (ch *ChDb) ReConnect() error {
 		}
 	}
 	connect, err := sql.Open("clickhouse", ch.dsn)
+
 	if err != nil {
 		return err
 	}
@@ -231,6 +265,17 @@ func (ch *ChDb) Execute(q string) (sql.Result, error) {
 	log.Debugf("[sql] execute: %s | dsn: %v", q, ch.dsn)
 	return ch.connect.Exec(q)
 }
+
+func (ch *ChDb) Prepare(q string) (*sql.Stmt, error) {
+	ch.mux.Lock()
+	defer ch.mux.Unlock()
+	err := ch.ReConnectLoop()
+	if err != nil {
+		return nil, err
+	}
+	log.Debugf("[sql] prepare: %s | dsn: %v", q, ch.dsn)
+	return ch.connect.Prepare(q)
+}
 func (ch *ChDb) Query(q string) (*sql.Rows, error) {
 	ch.mux.Lock()
 	defer ch.mux.Unlock()
@@ -240,6 +285,17 @@ func (ch *ChDb) Query(q string) (*sql.Rows, error) {
 	}
 	log.Debugf("[sql] query: %s | dsn: %v", q, ch.dsn)
 	return ch.connect.Query(q)
+}
+
+func (ch *ChDb) QueryContext(ctx context.Context, q string) (*sql.Rows, error) {
+	ch.mux.Lock()
+	defer ch.mux.Unlock()
+	err := ch.ReConnectLoop()
+	if err != nil {
+		return nil, err
+	}
+	log.Debugf("[sql] query context: %s | dsn: %v", q, ch.dsn)
+	return ch.connect.QueryContext(ctx, q)
 }
 
 func (ch *ChDb) GetTimezone() (string, error) {
@@ -261,35 +317,6 @@ func (ch *ChDb) GetTimezone() (string, error) {
 	}
 
 	return res, err
-}
-
-func (ch *ChDb) GetTablePartitions(database string, table string) []map[string]interface{} {
-
-	out, err := ch.QueryToNestedMap(fmt.Sprintf(`
-			SELECT
-				partition as partition,
-				name as name,
-				active	as active,
-				partition_id as partition_id,
-				min_time as min_time,
-				max_time as max_time,
-				formatReadableSize(sum(bytes)) as size,
-				sum(rows) as rows,
-				max(modification_time) as latest_modification,
-				sum(bytes)	as bytes_size,
-				any(engine) as engine,
-				formatReadableSize(sum(primary_key_bytes_in_memory)) as primary_keys_size
-			FROM system.parts
-			WHERE table = '%s' and database = '%s'
-			GROUP BY partition,name,active,partition_id,min_time,max_time
-			ORDER BY bytes_size DESC`, table, database))
-
-	if err != nil {
-		log.Fatal(err)
-	}
-
-	return out
-
 }
 
 func (ch *ChDb) GetTableDescribe(database string, table string) []map[string]interface{} {
@@ -359,150 +386,74 @@ func (ch *ChDb) CheckRowsCount(database string, table string) uint64 {
 	return res
 
 }
-func (ch *ChDb) RegexPartitionName(name interface{}) []string {
-	r := regexp.MustCompile(`([a-zA-Z0-9-:_])+`)
-	res := r.FindAllString(fmt.Sprintf("%v", name), -1)
-	return res
-}
 
-func (ch *ChDb) RegexPartitionKeysFromSettings(keys interface{}, setting tableSettings) []string {
+func (ch *ChDb) GetTablePartitions(database string, table string) []map[string]interface{} {
 
-	tmp := regexp.MustCompile(`([a-zA-Z_:])+`).FindAllString(fmt.Sprintf("%v", keys), -1)
+	out, err := ch.QueryToNestedMap(fmt.Sprintf(`
+			SELECT
+				partition as partition,
+				name as name,
+				active	as active,
+				partition_id as partition_id,
+				min_time as min_time,
+				max_time as max_time,
+				formatReadableSize(sum(bytes)) as size,
+				sum(rows) as rows,
+				max(modification_time) as latest_modification,
+				sum(bytes)	as bytes_size,
+				any(engine) as engine,
+				formatReadableSize(sum(primary_key_bytes_in_memory)) as primary_keys_size
+			FROM system.parts
+			WHERE table = '%s' and database = '%s'
+			GROUP BY partition,name,active,partition_id,min_time,max_time
+			ORDER BY bytes_size DESC`, table, database))
 
-	var res []string
-
-	for _, value := range setting.Describe {
-		for _, key := range tmp {
-			if fmt.Sprintf("%v", value["name"]) == key {
-				res = append(res, key)
-			}
-		}
+	if err != nil {
+		log.Fatal(err)
 	}
 
-	return res
+	return out
+
 }
 
-func (ch *ChDb) RegexPartitionKeysFromSettingsRaw(keys interface{}, setting tableSettings) []string {
+func (ch *ChDb) CheckPartitionRowCount(where string, settings tableSettings) uint64 {
 
-	first := regexp.MustCompile(`[^a-zA-Z]\((.*)\)`).ReplaceAllString(fmt.Sprintf("%v", keys), "${1}")
-	tmp := strings.Split(first, ",")
-
-	var res []string
-
-	for _, value := range setting.Describe {
-		for _, key := range tmp {
-			if strings.Contains(key, fmt.Sprintf("%v", value["name"])) {
-				res = append(res, key)
-			}
-		}
+	row, err := ch.Query(fmt.Sprintf("SELECT count(*) FROM %s.%s %s", settings.DbName, settings.TableName, where))
+	if err != nil {
+		log.Fatal("cant check partition row count ", err)
 	}
 
-	return res
-}
+	var res uint64
 
-// почему так? а потому что голанг своим := range выбирает рандомные элементы а не по порядку эх
-func (ch *ChDb) PartitionKeysToMap(keys []string, settings tableSettings) map[int]map[string]string {
-
-	res := make(map[int]map[string]string)
-
-	for index, key := range keys {
-		for _, desc := range settings.Describe {
-			if desc["name"] == key {
-				tmp := make(map[string]string)
-				tmp[fmt.Sprintf("%v", desc["name"])] = fmt.Sprintf("%v", desc["type"])
-				res[index] = tmp
-			}
+	for row.Next() {
+		var (
+			result uint64
+		)
+		if err := row.Scan(&result); err != nil {
+			log.Fatal("cant scan rows", err)
 		}
+
+		res = result
 	}
 
 	return res
-}
 
-func (ch *ChDb) IfTimeStampInPartitionKeys(keys map[string]string) bool {
-	for _, value := range keys {
-		if value == "DateTime" {
-			return true
-		}
-	}
-	return false
-}
-
-func (ch *ChDb) ReturnValuesString(desc []map[string]interface{}) string {
-
-	var (
-		res string
-		tmp []string
-	)
-
-	for _, row := range desc {
-		tmp = append(tmp, fmt.Sprintf("%v", row["name"]))
-	}
-
-	res = strings.Join(tmp, ",")
-
-	return res
-
-}
-
-func timeRange(from interface{}, to interface{}) (string, string) {
-
-	layout := "2006-01-02 15:04:05 Z0700 MST"
-
-	parseFrom, _ := time.Parse(layout, fmt.Sprintf("%v", from))
-	parseTo, _ := time.Parse(layout, fmt.Sprintf("%v", to))
-
-	timeFrom := fmt.Sprintf("%d-%02d-%02d %02d:%02d:%02d", parseFrom.Year(), parseFrom.Month(), parseFrom.Day(), parseFrom.Hour(), parseFrom.Minute(), parseFrom.Second())
-	timeTo := fmt.Sprintf("%d-%02d-%02d %02d:%02d:%02d", parseTo.Year(), parseTo.Month(), parseTo.Day(), parseTo.Hour(), parseTo.Minute(), parseTo.Second())
-
-	return timeFrom, timeTo
-}
-
-func (ch *ChDb) GenerateWhere(from interface{}, to interface{}, partitionKeys map[int]map[string]string, partitionName []string, rawPartitionKeys []string, complexPartitionKey bool) string {
-	var (
-		where string
-		tmp   int
-	)
-
-	if complexPartitionKey {
-		log.Print("complex partition keys")
-	}
-
-	where = "WHERE "
-	tmp = 0
-
-	timeFrom, timeTo := timeRange(from, to)
-
-	//голанг не умеет в range!
-	for index, stringMap := range partitionKeys {
-		for name, colType := range stringMap {
-			for nameIndex, nameVal := range partitionName {
-
-				if index == nameIndex {
-					if colType == "DateTime" || colType == "Date" {
-						if timeFrom != "1970-01-01 03:00:00" && timeTo != "1970-01-01 03:00:00" {
-							where = where + fmt.Sprintf("%s >= toDateTime('%v') AND %v <= toDateTime('%v')", name, timeFrom, name, timeTo)
-						} else {
-							log.Print(rawPartitionKeys[index])
-							where = where + fmt.Sprintf("%s='%s'", rawPartitionKeys[index], nameVal)
-						}
-					} else {
-						where = where + fmt.Sprintf("%s='%s'", name, nameVal)
-					}
-				}
-			}
-
-			if tmp < len(partitionKeys)-1 {
-				where = where + " AND "
-			}
-
-			tmp = +1
-		}
-	}
-
-	return where
 }
 
 func (ch *ChDb) DeletePartition(destinationTable tableSettings, where string) bool {
+
+	_, err := ch.Execute(fmt.Sprintf("ALTER TABLE %s.%s DELETE %s",
+		destinationTable.DbName, destinationTable.TableName, where))
+	if err != nil {
+		log.Fatal("cant delete rows!", err)
+	}
+
+	return true
+}
+
+func (ch *ChDb) DeletePartitionAsync(destinationTable tableSettings, where string, wg *sync.WaitGroup) bool {
+
+	defer wg.Done()
 
 	_, err := ch.Execute(fmt.Sprintf("ALTER TABLE %s.%s DELETE %s",
 		destinationTable.DbName, destinationTable.TableName, where))
@@ -524,9 +475,22 @@ func (ch *ChDb) CopyPartition(sourceTable tableSettings, destinationTable tableS
 	return true
 }
 
+func (ch *ChDb) CopyPartitionAsync(sourceTable tableSettings, destinationTable tableSettings, sourceConfiguration config.Connection, values string, where string, wg *sync.WaitGroup) bool {
+
+	defer wg.Done()
+
+	_, err := ch.Execute(fmt.Sprintf("INSERT INTO %s.%s (%s) SELECT %s FROM remote('%s:%v', %s, %s, '%s','%s') %s",
+		destinationTable.DbName, destinationTable.TableName, values, values, sourceConfiguration.HostName, sourceConfiguration.Port, sourceTable.DbName, sourceTable.TableName, sourceConfiguration.UserName, sourceConfiguration.Password, where))
+	if err != nil {
+		log.Fatal("cant copy partition", err)
+	}
+
+	return true
+}
+
 func (ch *ChDb) PartitionHashCheck(table tableSettings, values string, where string) uint64 {
 
-	out, err := ch.Query(fmt.Sprintf("SELECT groupBitXor(cityHash64(*)) FROM (SELECT %s FROM %s.%s %s)",
+	out, err := ch.QueryContext(context.Background(), fmt.Sprintf("SELECT groupBitXor(cityHash64(*)) FROM (SELECT %s FROM %s.%s %s)",
 		values, table.DbName, table.TableName, where))
 	if err != nil {
 		log.Fatal("cant check hash timestamp", err)
@@ -541,9 +505,30 @@ func (ch *ChDb) PartitionHashCheck(table tableSettings, values string, where str
 		if err := out.Scan(&result); err != nil {
 			log.Fatal("cant scan rows", err)
 		}
-		log.Print(result)
 		res = result
 	}
 
 	return res
+}
+
+func (ch *ChDb) PartitionHashCheckAsync(table tableSettings, values string, where string, res chan uint64, wg *sync.WaitGroup) {
+
+	defer wg.Done()
+
+	out, err := ch.QueryContext(context.Background(), fmt.Sprintf("SELECT groupBitXor(cityHash64(*)) FROM (SELECT %s FROM %s.%s %s)",
+		values, table.DbName, table.TableName, where))
+	if err != nil {
+		log.Fatal("cant check hash timestamp", err)
+	}
+
+	for out.Next() {
+		var (
+			result uint64
+		)
+		if err := out.Scan(&result); err != nil {
+			log.Fatal("cant scan rows", err)
+		}
+		res <- result
+	}
+
 }

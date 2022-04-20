@@ -8,6 +8,7 @@
 
 ```
 Usage of ./clickhouse-table-copier:
+-a, --async           Enable async copy // в разработке
 -c, --config string   Path to config file (default "config.yaml") // путь к конфигу
 -d, --debug           Enable debug // пока нерабочая функция
 -i, --info            Enable information mode // драй ран покажет хэши партишенов и скажет какие нужно копировать или удалять

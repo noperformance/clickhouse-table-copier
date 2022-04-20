@@ -6,7 +6,7 @@ var (
 	clickTableCopier = clickTableCopierVersion{
 		progName: "clickhouse-table-copier",
 		majorVer: 0,
-		minorVer: 3,
+		minorVer: 4,
 	}
 	BuildVer = ""
 )
