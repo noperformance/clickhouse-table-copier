@@ -45,7 +45,6 @@ func Info() {
 		destinationPartitionHash   uint64
 		partitionName              = []string{""}
 		partitionKeysWithFunctions = false
-		values                     = ""
 	)
 
 	log.Debug("Getting partition keys")
@@ -58,11 +57,8 @@ func Info() {
 		log.Fatal("No partition keys!")
 	}
 
-	if len(database.ReturnValuesString(sourceTableSettings.Describe)) < len(database.ReturnValuesString(destinationTableSettings.Describe)) {
-		values = database.ReturnValuesString(sourceTableSettings.Describe)
-	} else {
-		values = database.ReturnValuesString(destinationTableSettings.Describe)
-	}
+	values := database.ReturnValuesString(sourceTableSettings.Describe, destinationTableSettings.Describe)
+	//destinationValues := database.ReturnDestValues(sourceTableSettings.Describe, destinationTableSettings.Describe)
 
 	for _, partition := range sourceTableSettings.TablePartitions {
 
@@ -150,7 +146,6 @@ func Copy() {
 		destinationPartitionHash   uint64
 		partitionName              = []string{""}
 		partitionKeysWithFunctions = false
-		values                     = ""
 	)
 
 	log.Debug("Getting partition keys")
@@ -163,11 +158,8 @@ func Copy() {
 		log.Fatal("No partition keys!")
 	}
 
-	if len(database.ReturnValuesString(sourceTableSettings.Describe)) < len(database.ReturnValuesString(destinationTableSettings.Describe)) {
-		values = database.ReturnValuesString(sourceTableSettings.Describe)
-	} else {
-		values = database.ReturnValuesString(destinationTableSettings.Describe)
-	}
+	values := database.ReturnValuesString(sourceTableSettings.Describe, destinationTableSettings.Describe)
+	destinationValues := database.ReturnDestValues(sourceTableSettings.Describe, destinationTableSettings.Describe)
 
 	for _, partition := range sourceTableSettings.TablePartitions {
 
@@ -198,7 +190,7 @@ func Copy() {
 
 			if sourcePartitionHash != destinationPartitionHash && destinationPartitionHash == 0 {
 				log.Print("Destination partition empty! lets start copy partition: ", partition["name"])
-				destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, currentWhere)
+				destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
 				log.Printf("Copy of partition: %v is finished! ", partition["name"])
 			} else if sourcePartitionHash != destinationPartitionHash && destinationPartitionHash != 0 {
 				log.Print("Destination data inconsistent! remove needed")
@@ -210,7 +202,7 @@ func Copy() {
 			}
 		} else {
 			log.Print("Destination partition row count is zero, so we just starting copy partition: ", partition["name"])
-			destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, currentWhere)
+			destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
 			log.Printf("Copy of partition: %v is finished! ", partition["name"])
 		}
 	}
@@ -259,7 +251,6 @@ func AsyncCopy() {
 		destinationPartitionHash   uint64
 		partitionName              = []string{""}
 		partitionKeysWithFunctions = false
-		values                     = ""
 		wg                         sync.WaitGroup
 	)
 
@@ -273,15 +264,10 @@ func AsyncCopy() {
 		log.Fatal("[main] No partition keys!")
 	}
 
-	if len(database.ReturnValuesString(sourceTableSettings.Describe)) < len(database.ReturnValuesString(destinationTableSettings.Describe)) {
-		values = database.ReturnValuesString(sourceTableSettings.Describe)
-	} else {
-		values = database.ReturnValuesString(destinationTableSettings.Describe)
-	}
+	values := database.ReturnValuesString(sourceTableSettings.Describe, destinationTableSettings.Describe)
+	destinationValues := database.ReturnDestValues(sourceTableSettings.Describe, destinationTableSettings.Describe)
 
 	for _, partition := range sourceTableSettings.TablePartitions {
-
-		wg.Add(1)
 
 		if len(sourcePartitionKeyStringArray) > 1 {
 			partitionName = database.RegexPartitionName(partition["partition"])
@@ -297,11 +283,16 @@ func AsyncCopy() {
 
 		if destination.CheckPartitionRowCount(currentWhere, destinationTableSettings) != 0 { //если  удаленная партиция пустая то и хэши сверять незачем
 
-			go source.PartitionHashCheckAsync(sourceTableSettings, values, currentWhere, sourceHashChan, &wg)
+			wg.Add(2)
+
+			go source.PartitionHashCheckAsync(sourceTableSettings, destinationValues, currentWhere, sourceHashChan, &wg)
 			go destination.PartitionHashCheckAsync(destinationTableSettings, values, currentWhere, destinationHashChan, &wg)
 
 			sourcePartitionHash = <-sourceHashChan
 			destinationPartitionHash = <-destinationHashChan
+
+			log.Debug(sourcePartitionHash)
+			log.Debug(destinationPartitionHash)
 
 			if sourcePartitionHash == 0 && destinationPartitionHash == 0 {
 				log.Fatal("hashes empty, looks like beda")
@@ -309,25 +300,25 @@ func AsyncCopy() {
 
 			if sourcePartitionHash != destinationPartitionHash && destinationPartitionHash == 0 {
 				log.Printf("[%v] Destination partition empty! lets start copy partition", partition["name"])
-				go destination.CopyPartitionAsync(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, currentWhere, &wg)
+				go destination.CopyPartitionAsync(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere, &wg)
 				log.Printf("[%v] Copy of partition is finished! ", partition["name"])
 			} else if sourcePartitionHash != destinationPartitionHash && destinationPartitionHash != 0 {
 				//wg.Add(1)
 				log.Printf("[%v] Destination data inconsistent! remove needed", partition["name"])
 				log.Printf("[%v] Removing...", partition["name"])
-				//go destination.DeletePartitionAsync(destinationTableSettings, currentWhere, &wg)
+				go destination.DeletePartitionAsync(destinationTableSettings, currentWhere, &wg)
 				log.Printf("[%v] Remove finished", partition["name"])
 				log.Printf("[%v] Starting to copy: ", partition["name"])
-				go destination.CopyPartitionAsync(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, currentWhere, &wg)
+				go destination.CopyPartitionAsync(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere, &wg)
 				log.Printf("[%v] Finished", partition["name"])
 			} else {
-				wg.Add(1)
 				log.Printf("[%v] Partitions identical ! skipping ", partition["name"])
 			}
 
 		} else {
+			wg.Add(1)
 			log.Printf("[%v] Destination partition row count is zero, so we just starting copy partition: ", partition["name"])
-			go destination.CopyPartitionAsync(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, currentWhere, &wg)
+			go destination.CopyPartitionAsync(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere, &wg)
 			log.Printf("[%v] Copy of partition is finished! ", partition["name"])
 		}
 

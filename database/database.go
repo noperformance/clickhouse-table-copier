@@ -464,10 +464,10 @@ func (ch *ChDb) DeletePartitionAsync(destinationTable tableSettings, where strin
 	return true
 }
 
-func (ch *ChDb) CopyPartition(sourceTable tableSettings, destinationTable tableSettings, sourceConfiguration config.Connection, values string, where string) bool {
+func (ch *ChDb) CopyPartition(sourceTable tableSettings, destinationTable tableSettings, sourceConfiguration config.Connection, values string, destinationValues string, where string) bool {
 
 	_, err := ch.Execute(fmt.Sprintf("INSERT INTO %s.%s (%s) SELECT %s FROM remote('%s:%v', %s, %s, '%s','%s') %s",
-		destinationTable.DbName, destinationTable.TableName, values, values, sourceConfiguration.HostName, sourceConfiguration.Port, sourceTable.DbName, sourceTable.TableName, sourceConfiguration.UserName, sourceConfiguration.Password, where))
+		destinationTable.DbName, destinationTable.TableName, values, destinationValues, sourceConfiguration.HostName, sourceConfiguration.Port, sourceTable.DbName, sourceTable.TableName, sourceConfiguration.UserName, sourceConfiguration.Password, where))
 	if err != nil {
 		log.Fatal("cant copy partition", err)
 	}
@@ -475,12 +475,12 @@ func (ch *ChDb) CopyPartition(sourceTable tableSettings, destinationTable tableS
 	return true
 }
 
-func (ch *ChDb) CopyPartitionAsync(sourceTable tableSettings, destinationTable tableSettings, sourceConfiguration config.Connection, values string, where string, wg *sync.WaitGroup) bool {
+func (ch *ChDb) CopyPartitionAsync(sourceTable tableSettings, destinationTable tableSettings, sourceConfiguration config.Connection, values string, destinationValues string, where string, wg *sync.WaitGroup) bool {
 
 	defer wg.Done()
 
 	_, err := ch.Execute(fmt.Sprintf("INSERT INTO %s.%s (%s) SELECT %s FROM remote('%s:%v', %s, %s, '%s','%s') %s",
-		destinationTable.DbName, destinationTable.TableName, values, values, sourceConfiguration.HostName, sourceConfiguration.Port, sourceTable.DbName, sourceTable.TableName, sourceConfiguration.UserName, sourceConfiguration.Password, where))
+		destinationTable.DbName, destinationTable.TableName, values, destinationValues, sourceConfiguration.HostName, sourceConfiguration.Port, sourceTable.DbName, sourceTable.TableName, sourceConfiguration.UserName, sourceConfiguration.Password, where))
 	if err != nil {
 		log.Fatal("cant copy partition", err)
 	}
