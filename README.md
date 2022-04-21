@@ -1,33 +1,41 @@
 # clickhouse-table-copier
 
 
+##why 
 
-## краткая инфа
+If you need to copy one clickhouse table to another server with DIFFERENT schema
 
-Необходим бинарь и config файл
+##requirements
+
+source table must have  partition  key
+
+## how to
+- env GOOS=linux GOARCH=amd64 go build
+- ./clickhouse-table-copier -h
+
+#configs
 
 ```
 Usage of ./clickhouse-table-copier:
--a, --async           Enable async copy // в разработке
--c, --config string   Path to config file (default "config.yaml") // путь к конфигу
--d, --debug           Enable debug // пока нерабочая функция
--i, --info            Enable information mode // драй ран покажет хэши партишенов и скажет какие нужно копировать или удалять
--s, --sync            Enable copymode // режим копирования данных
+-c, --config string   Path to config file (default "config.yaml") // config file path
+-d, --debug           Enable debug // doesnt work atm
+-i, --info            Enable information mode // dry-run checks only count/hashes
+-s, --sync            Enable copymode // copy mode 
 -v, --version         Get version
 ```
 
 ```
-source: // подключение откуда будем копировать данные
+source: // source connection from you want to copy
   user: "default"  
   password: ""
-  host: "172.18.0.4" //обязательное
-  port: 9000 // обязательное
-  database: "billing" // обязательное
-  table: "new" // обязательное
+  host: "172.18.0.4" //required
+  port: 9000 // required
+  database: "billing" // required
+  table: "new" // required
   skip_verify: true
   secure: false
   key_filename: ""
-destination: // подключение куда копируем 
+destination: // destination connection to you  want to copy
   user: "default"
   password: ""
   host: "172.18.0.3"
@@ -38,16 +46,14 @@ destination: // подключение куда копируем
   secure: false
   key_filename: ""
 
-worker_pool: // в стадии разработки, пока ничего не вносит
+worker_pool: // doesnt work
   num_workers: 10
   num_retry: 50
   chan_len: 100
 
-debug: false //включает sql debug
+debug: false // sql debug mode
+check_hashes: false  // check by hash or row count
 ```
 
 ## TODO
-- [x] реализация реконекта при обрыве соединения
-- [x] основной функционал синка таблиц по партициям
-- [x] дработка режима dry-run
-- [ ] написание тестов
+- [ ] tests
