@@ -1,11 +1,11 @@
 # clickhouse-table-copier
 
 
-##why 
+## why 
 
 If you need to copy one clickhouse table to another server with DIFFERENT schema
 
-##requirements
+## requirements
 
 source table must have  partition  key
 
@@ -13,7 +13,13 @@ source table must have  partition  key
 - env GOOS=linux GOARCH=amd64 go build
 - ./clickhouse-table-copier -h
 
-#configs
+## possible  problems 
+
+`not all types for convert included,
+you can  add here
+https://github.com/noperformance/clickhouse-table-copier/blob/main/database/sidefunctions.go#L112`
+
+## configs
 
 ```
 Usage of ./clickhouse-table-copier:
