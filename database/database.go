@@ -439,6 +439,27 @@ func (ch *ChDb) CheckPartitionRowCount(where string, settings tableSettings) uin
 	return res
 
 }
+func (ch *ChDb) CheckPartitionRowCountAsync(where string, settings tableSettings, res chan uint64, wg *sync.WaitGroup) {
+
+	defer wg.Done()
+
+	row, err := ch.Query(fmt.Sprintf("SELECT count(*) FROM %s.%s %s", settings.DbName, settings.TableName, where))
+	if err != nil {
+		log.Fatal("cant check partition row count ", err)
+	}
+	
+	for row.Next() {
+		var (
+			result uint64
+		)
+		if err := row.Scan(&result); err != nil {
+			log.Fatal("cant scan rows", err)
+		}
+
+		res <- result
+	}
+
+}
 
 func (ch *ChDb) DeletePartition(destinationTable tableSettings, where string) bool {
 

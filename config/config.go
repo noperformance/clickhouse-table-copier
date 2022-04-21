@@ -31,6 +31,7 @@ type config struct {
 	DestinationConnection Connection  `yaml:"destination"`
 	WorkerPool            WorkerPoolT `yaml:"worker_pool"`
 	Debug                 bool        `yaml:"debug"`
+	CheckHashes           bool        `yaml:"check_hashes"`
 }
 
 var (

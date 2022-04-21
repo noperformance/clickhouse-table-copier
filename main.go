@@ -52,7 +52,6 @@ func main() {
 	flag.BoolVarP(&cargs.debug, "debug", "d", false, "Enable debug")
 	flag.BoolVarP(&cargs.infoMode, "info", "i", false, "Enable information mode")
 	flag.BoolVarP(&cargs.copyMode, "sync", "s", false, "Enable copymode")
-	flag.BoolVarP(&cargs.asyncMode, "async", "a", false, "Enable async copy")
 	flag.StringVarP(&cargs.configFile, "config", "c", "config.yaml", "Path to config file")
 	flag.Parse()
 
@@ -96,8 +95,6 @@ func main() {
 		copy.Info()
 	} else if cargs.copyMode {
 		copy.Copy()
-	} else if cargs.asyncMode {
-		copy.AsyncCopy()
 	} else {
 		log.Fatal("?")
 	}

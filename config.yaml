@@ -25,3 +25,4 @@ worker_pool:
   chan_len: 100
 
 debug: false
+check_hashes: fasle
