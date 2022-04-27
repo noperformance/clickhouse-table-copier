@@ -221,6 +221,8 @@ func Copy() {
 			sourcePartitionHash = <-sourceComapre
 			destinationPartitionHash = <-destinationCompare
 
+			wg.Wait()
+
 			log.Debug(sourcePartitionHash)
 			log.Debug(destinationPartitionHash)
 
@@ -229,31 +231,29 @@ func Copy() {
 			}
 
 			if sourcePartitionHash != destinationPartitionHash && destinationPartitionHash == 0 {
+
 				log.Printf("[%v] Destination partition empty! lets start copy partition", partition["name"])
-				go destination.CopyPartitionAsync(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere, &wg)
+				destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
 				log.Printf("[%v] Copy of partition is finished! ", partition["name"])
 			} else if sourcePartitionHash != destinationPartitionHash && destinationPartitionHash != 0 {
-				//wg.Add(1)
 				log.Printf("[%v] Destination data inconsistent! remove needed", partition["name"])
 				log.Printf("[%v] Removing...", partition["name"])
-				go destination.DeletePartitionAsync(destinationTableSettings, currentWhere, &wg)
+				destination.DeletePartition(destinationTableSettings, currentWhere)
 				log.Printf("[%v] Remove finished", partition["name"])
 				log.Printf("[%v] Starting to copy: ", partition["name"])
-				go destination.CopyPartitionAsync(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere, &wg)
+				destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
 				log.Printf("[%v] Finished", partition["name"])
 			} else {
 				log.Printf("[%v] Partitions identical ! skipping ", partition["name"])
 			}
 
 		} else {
-			wg.Add(1)
 			log.Printf("[%v] Destination partition row count is zero, so we just starting copy partition: ", partition["name"])
-			go destination.CopyPartitionAsync(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere, &wg)
+			destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
 			log.Printf("[%v] Copy of partition is finished! ", partition["name"])
 		}
 
 	}
-	wg.Wait()
 
 	log.Print("Finish...")
 }

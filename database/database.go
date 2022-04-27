@@ -440,14 +440,13 @@ func (ch *ChDb) CheckPartitionRowCount(where string, settings tableSettings) uin
 
 }
 func (ch *ChDb) CheckPartitionRowCountAsync(where string, settings tableSettings, res chan uint64, wg *sync.WaitGroup) {
-
 	defer wg.Done()
 
 	row, err := ch.Query(fmt.Sprintf("SELECT count(*) FROM %s.%s %s", settings.DbName, settings.TableName, where))
 	if err != nil {
 		log.Fatal("cant check partition row count ", err)
 	}
-	
+
 	for row.Next() {
 		var (
 			result uint64
@@ -473,7 +472,6 @@ func (ch *ChDb) DeletePartition(destinationTable tableSettings, where string) bo
 }
 
 func (ch *ChDb) DeletePartitionAsync(destinationTable tableSettings, where string, wg *sync.WaitGroup) bool {
-
 	defer wg.Done()
 
 	_, err := ch.Execute(fmt.Sprintf("ALTER TABLE %s.%s DELETE %s",
@@ -497,7 +495,6 @@ func (ch *ChDb) CopyPartition(sourceTable tableSettings, destinationTable tableS
 }
 
 func (ch *ChDb) CopyPartitionAsync(sourceTable tableSettings, destinationTable tableSettings, sourceConfiguration config.Connection, values string, destinationValues string, where string, wg *sync.WaitGroup) bool {
-
 	defer wg.Done()
 
 	_, err := ch.Execute(fmt.Sprintf("INSERT INTO %s.%s (%s) SELECT %s FROM remote('%s:%v', %s, %s, '%s','%s') %s",
@@ -533,7 +530,6 @@ func (ch *ChDb) PartitionHashCheck(table tableSettings, values string, where str
 }
 
 func (ch *ChDb) PartitionHashCheckAsync(table tableSettings, values string, where string, res chan uint64, wg *sync.WaitGroup) {
-
 	defer wg.Done()
 
 	out, err := ch.QueryContext(context.Background(), fmt.Sprintf("SELECT groupBitXor(cityHash64(*)) FROM (SELECT %s FROM %s.%s %s)",
