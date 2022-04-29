@@ -221,8 +221,6 @@ func Copy() {
 			sourcePartitionHash = <-sourceComapre
 			destinationPartitionHash = <-destinationCompare
 
-			wg.Wait()
-
 			log.Debug(sourcePartitionHash)
 			log.Debug(destinationPartitionHash)
 
@@ -252,6 +250,8 @@ func Copy() {
 			destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
 			log.Printf("[%v] Copy of partition is finished! ", partition["name"])
 		}
+
+		wg.Wait()
 
 	}
 
