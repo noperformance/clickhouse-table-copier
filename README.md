@@ -59,6 +59,10 @@ worker_pool: // doesnt work
 
 debug: false // sql debug mode
 check_hashes: false  // check by hash or row count
+skip_delete: true // skip delete partition
+skip_reimport: true // skip reupload after delete // if both true then skip unconsistent parittion
+use_virtual_column: false // copy using _part, it means there is no way to compare partitions in case when partition  key is bad
+
 ```
 
 ## TODO

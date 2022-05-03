@@ -26,3 +26,6 @@ worker_pool:
 
 debug: false
 check_hashes: fasle
+skip_delete: true
+skip_reimport: true
+use_virtual_column: false

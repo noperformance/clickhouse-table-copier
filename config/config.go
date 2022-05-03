@@ -32,6 +32,9 @@ type config struct {
 	WorkerPool            WorkerPoolT `yaml:"worker_pool"`
 	Debug                 bool        `yaml:"debug"`
 	CheckHashes           bool        `yaml:"check_hashes"`
+	SkipDelete            bool        `yaml:"skip_delete"`
+	SkipReimport          bool        `yaml:"skip_reimport"`
+	UseVirtualColumn      bool        `yaml:"use_virtual_column"`
 }
 
 var (

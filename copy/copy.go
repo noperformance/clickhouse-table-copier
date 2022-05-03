@@ -48,6 +48,7 @@ func Info() {
 		partitionName              = []string{""}
 		partitionKeysWithFunctions = false
 		wg                         sync.WaitGroup
+		currentWhere               string
 	)
 
 	log.Debug("[main] Getting partition keys")
@@ -75,7 +76,8 @@ func Info() {
 		if len(sourcePartitionKeyStringArrayRaw) == len(sourcePartitionKeyStringArray) {
 			partitionKeysWithFunctions = true
 		}
-		currentWhere := database.GenerateWhere(partition["min_time"], partition["max_time"], sourcePartitionKeyMap, partitionName, sourcePartitionKeyStringArrayRaw, partitionKeysWithFunctions)
+
+		currentWhere = database.GenerateWhere(partition["min_time"], partition["max_time"], sourcePartitionKeyMap, partitionName, sourcePartitionKeyStringArrayRaw, partitionKeysWithFunctions)
 
 		if destination.CheckPartitionRowCount(currentWhere, destinationTableSettings) != 0 { //если  удаленная партиция пустая то и хэши сверять незачем
 
@@ -173,6 +175,7 @@ func Copy() {
 		partitionName              = []string{""}
 		partitionKeysWithFunctions = false
 		wg                         sync.WaitGroup
+		currentWhere               string
 	)
 
 	log.Debug("[main] Getting partition keys")
@@ -200,58 +203,70 @@ func Copy() {
 		if len(sourcePartitionKeyStringArrayRaw) == len(sourcePartitionKeyStringArray) {
 			partitionKeysWithFunctions = true
 		}
-		currentWhere := database.GenerateWhere(partition["min_time"], partition["max_time"], sourcePartitionKeyMap, partitionName, sourcePartitionKeyStringArrayRaw, partitionKeysWithFunctions)
 
-		if destination.CheckPartitionRowCount(currentWhere, destinationTableSettings) != 0 { //если  удаленная партиция пустая то и хэши сверять незачем
+		if c.UseVirtualColumn {
+			currentWhere = fmt.Sprintf("WHERE _part='%v'", partition["name"])
+			log.Printf("[%v] starting copy partition: ", partition["name"])
+			destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
+			log.Printf("[%v] copy of partition is finished! ", partition["name"])
+		} else {
+			currentWhere = database.GenerateWhere(partition["min_time"], partition["max_time"], sourcePartitionKeyMap, partitionName, sourcePartitionKeyStringArrayRaw, partitionKeysWithFunctions)
 
-			wg.Add(2)
+			if destination.CheckPartitionRowCount(currentWhere, destinationTableSettings) != 0 { //если  удаленная партиция пустая то и хэши сверять незачем
 
-			if c.CheckHashes {
+				wg.Add(2)
 
-				go source.PartitionHashCheckAsync(sourceTableSettings, destinationValues, currentWhere, sourceComapre, &wg)
-				go destination.PartitionHashCheckAsync(destinationTableSettings, values, currentWhere, destinationCompare, &wg)
+				if c.CheckHashes {
+
+					go source.PartitionHashCheckAsync(sourceTableSettings, destinationValues, currentWhere, sourceComapre, &wg)
+					go destination.PartitionHashCheckAsync(destinationTableSettings, values, currentWhere, destinationCompare, &wg)
+
+				} else {
+
+					go source.CheckPartitionRowCountAsync(currentWhere, sourceTableSettings, sourceComapre, &wg)
+					go destination.CheckPartitionRowCountAsync(currentWhere, destinationTableSettings, destinationCompare, &wg)
+
+				}
+
+				sourcePartitionHash = <-sourceComapre
+				destinationPartitionHash = <-destinationCompare
+
+				log.Debug(sourcePartitionHash)
+				log.Debug(destinationPartitionHash)
+
+				if sourcePartitionHash == 0 && destinationPartitionHash == 0 {
+					log.Fatal("hashes empty, looks like beda")
+				}
+
+				if sourcePartitionHash != destinationPartitionHash && destinationPartitionHash == 0 {
+
+					log.Printf("[%v] Destination partition empty! lets start copy partition", partition["name"])
+					destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
+					log.Printf("[%v] Copy of partition is finished! ", partition["name"])
+				} else if sourcePartitionHash != destinationPartitionHash && destinationPartitionHash != 0 {
+					log.Printf("[%v] Destination data inconsistent! remove needed", partition["name"])
+					if !c.SkipDelete {
+						log.Printf("[%v] Removing...", partition["name"])
+						destination.DeletePartition(destinationTableSettings, currentWhere)
+						log.Printf("[%v] Remove finished", partition["name"])
+					}
+					if !c.SkipReimport {
+						log.Printf("[%v] Starting to copy: ", partition["name"])
+						destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
+						log.Printf("[%v] Finished", partition["name"])
+					}
+				} else {
+					log.Printf("[%v] Partitions identical ! skipping ", partition["name"])
+				}
 
 			} else {
-
-				go source.CheckPartitionRowCountAsync(currentWhere, sourceTableSettings, sourceComapre, &wg)
-				go destination.CheckPartitionRowCountAsync(currentWhere, destinationTableSettings, destinationCompare, &wg)
-
-			}
-
-			sourcePartitionHash = <-sourceComapre
-			destinationPartitionHash = <-destinationCompare
-
-			log.Debug(sourcePartitionHash)
-			log.Debug(destinationPartitionHash)
-
-			if sourcePartitionHash == 0 && destinationPartitionHash == 0 {
-				log.Fatal("hashes empty, looks like beda")
-			}
-
-			if sourcePartitionHash != destinationPartitionHash && destinationPartitionHash == 0 {
-
-				log.Printf("[%v] Destination partition empty! lets start copy partition", partition["name"])
+				log.Printf("[%v] Destination partition row count is zero, so we just starting copy partition: ", partition["name"])
 				destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
 				log.Printf("[%v] Copy of partition is finished! ", partition["name"])
-			} else if sourcePartitionHash != destinationPartitionHash && destinationPartitionHash != 0 {
-				log.Printf("[%v] Destination data inconsistent! remove needed", partition["name"])
-				log.Printf("[%v] Removing...", partition["name"])
-				destination.DeletePartition(destinationTableSettings, currentWhere)
-				log.Printf("[%v] Remove finished", partition["name"])
-				log.Printf("[%v] Starting to copy: ", partition["name"])
-				destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
-				log.Printf("[%v] Finished", partition["name"])
-			} else {
-				log.Printf("[%v] Partitions identical ! skipping ", partition["name"])
 			}
 
-		} else {
-			log.Printf("[%v] Destination partition row count is zero, so we just starting copy partition: ", partition["name"])
-			destination.CopyPartition(sourceTableSettings, destinationTableSettings, c.SourceConnection, values, destinationValues, currentWhere)
-			log.Printf("[%v] Copy of partition is finished! ", partition["name"])
+			wg.Wait()
 		}
-
-		wg.Wait()
 
 	}
 
